@@ -1,6 +1,36 @@
+# Fase 3 — validação Android nesta execução (02/11/2026)
+
+## Implementação nativa
+
+- Navegação Compose com quatro destinos inferiores (Início, Proteção, Voz e Mais), menu superior de áreas secundárias, retorno interno e restauração do destino após recriação da Activity. Cada rota reinicia sua posição de rolagem.
+- Início com estado real local, modelo do Android, sincronização, permissões e atividade recente.
+- Telas específicas: localização consentida, mensagem e ativação explícita de modo perdido local, alarme audível voluntário (até 30s e encerrado ao sair do app), recuperação com autenticação nativa, histórico com vazio/exclusão, diagnóstico de permissões e ajuda/compatibilidade.
+- Sensibilidade de voz persistida localmente e limitada a 70–100%. Trocar de tela encerra a sessão de voz e retira autorização de bloqueio dessa sessão.
+- Administração, bloqueio explícito, GPS pontual, Keystore, pareamento e sincronização existentes preservados. O modo perdido local não bloqueia fisicamente o Android nem dispara alarme automaticamente; comunica o estado quando cadastrado. O botão de bloqueio continua exigindo confirmação.
+- Recursos da conta (cadastro/recuperação por e-mail, contatos, dispositivos da conta, assinatura e perfil) continuam no painel web autenticado; não foram convertidos em formulários nativos nesta fase. A DEMO offline é uma experiência distinta e mais abrangente.
+
+## Verificação atual e bloqueio de build
+
+Java OpenJDK 17 disponível. `gradle-wrapper.jar` e `gradle-wrapper.properties` estão versionados. Não foram encontrados SDK Android, adb, distribuição Gradle 8.9 ou compilador Kotlin em `/opt`, `/tmp` e `/workspace` nesta execução.
+
+Tentativa efetiva:
+
+```sh
+cd apps/android
+./gradlew testDebugUnitTest assembleDebug --console=plain
+```
+
+Falhou **antes da compilação e antes dos testes JVM**, ao baixar `https://services.gradle.org/distributions/gradle-8.9-bin.zip`: `java.net.SocketException: Network is unreachable`. Uma tentativa com o proxy local informado pelo ambiente retornou `Connection refused`. A verificação TLS não foi desativada.
+
+`git diff --check -- apps/android` passou. Revisão de fontes e limites de permissão feita; isso não substitui compilação Kotlin, testes JVM ou teste de UI.
+
+**Não foi gerado novo APK da Fase 3 neste ambiente. Não houve emulador/aparelho físico. Os resultados abaixo são históricos e não validam os novos fontes.** Após sincronizar os arquivos DEMO atualizados, repetir `testDebugUnitTest assembleDebug` em Windows/CI com JDK17, SDK35 e acesso às dependências, conferir igualdade dos assets e instalar em aparelho autorizado.
+
+---
+
 # Validação Android — 02 novembro 2026
 
-## Resultado efetivo desta execução
+## Resultado histórico da Fase 2 (não repetido nesta execução)
 
 - `testDebugUnitTest assembleDebug`: **BUILD SUCCESSFUL**.
 - Primeira execução completa: 43 tarefas executadas, 4m58s.

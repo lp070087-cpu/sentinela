@@ -6,7 +6,7 @@ plugins {
 android {
     namespace = "com.unitrix.sentinela"
     compileSdk = 35
-    defaultConfig { applicationId = "com.unitrix.sentinela"; minSdk = 31; targetSdk = 35; versionCode = 1; versionName = "0.2.0-dev" }
+    defaultConfig { applicationId = "com.unitrix.sentinela"; minSdk = 31; targetSdk = 35; versionCode = 2; versionName = "0.3.0-dev" }
     buildTypes { release { isMinifyEnabled = false }; debug { applicationIdSuffix = ".dev"; versionNameSuffix = "-debug" } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }

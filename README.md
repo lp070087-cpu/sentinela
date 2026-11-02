@@ -1,10 +1,14 @@
-# SENTINELA — Fase 2 / desenvolvimento local
+# SENTINELA — Fase 3 / desenvolvimento local
 
 A apresentação premium original foi preservada em `dist/`, sem alteração visual. O backend e o painel conectado foram adicionados separadamente. Esta versão não é um sistema de segurança de produção.
 
+## Fase 3
+
+A DEMO oferece 16 módulos com dados fictícios persistidos localmente e acesso sem senha. O painel autenticado inclui edição de perfil, contatos e dispositivos, detalhes de incidentes, notificações e exportação/exclusão da conta local. Veja [rotas, validação e pendências](STATUS-PROJETO.md) e os [contratos novos](docs/API_FASE3.md).
+
 ## Abrir no Windows
 
-1. Extraia `sentinela-fase2.zip` em uma pasta temporária.
+1. No checkout existente, preserve alterações locais e sincronize com `git pull --ff-only origin main`. Para uma pasta sem Git, baixe o ZIP de fontes da branch main e extraia em uma pasta temporária.
 2. Para integrar à pasta **sentinela** já criada no Desktop real, execute o script `docs/IMPORTAR_WINDOWS.ps1` com o caminho do ZIP. Ele consulta o Desktop do Windows e o OneDrive; arquivos conflitantes recebem sufixo `.incoming-*`, sem substituir os originais. Se houver conflitos, revise antes de executar.
 3. Abra a pasta resultante no VS Code. Requer **Node.js 24+** (o Node22.11 anteriormente utilizado não é o runtime validado nesta fase).
 4. Na raiz:
@@ -20,7 +24,7 @@ Não há dependências npm para instalar no backend local. O arquivo `.env` é o
 - Painel com backend: http://localhost:4173/panel.html
 - Saúde: http://localhost:4173/api/health
 
-Neste ambiente remoto o preview é http://terminal.local:4173/ e o painel http://terminal.local:4173/panel.html. O ambiente Linux remoto **não tem acesso ao Desktop do Windows**. A transferência para a pasta local depende de executar a importação acima no Windows; ela não foi realizada remotamente.
+O ambiente Linux remoto **não tem acesso ao Desktop do Windows**. A transferência para a pasta local depende de executar a importação acima no Windows; ela não foi realizada remotamente.
 
 ## Acessar sem cadastro
 
@@ -28,7 +32,7 @@ Abra `/panel.html` e clique em **Entrar na demonstração**, ou abra `/demo-app.
 
 ## Primeiro teste completo
 
-1. Crie uma conta de teste pelo painel; senha de pelo menos12caracteres. Não há senha fixa nem conta pré-criada.
+1. Crie uma conta de teste pelo painel; senha de pelo menos 12 caracteres. Não há senha fixa nem conta pré-criada.
 2. Na caixa de entrega local, use o token aleatório gerado para confirmar o e-mail. Isso valida o fluxo, não entrega real de e-mail.
 3. Cadastre telefone principal e contato de confiança, confirme códigos locais. Para alertas, confirme também o e-mail do contato e autorize explicitamente seu recebimento.
 4. Instale o APK debug quando disponível, ou abra `apps/android` no Android Studio e compile conforme seu README.
@@ -69,7 +73,7 @@ A confirmação de comando não altera o estado por conta própria: a telemetria
 - **Botões**: não intercepta Power, combinações com volume ou SOS. Alternativas implementadas: botão no app e ação na notificação. Widget/tile pendentes.
 - **Modo perdido**: mensagem no próprio app; tela nativa preservada. Alarme autorizado é audível e não é acionado automaticamente pelo fluxo silencioso de emergência.
 - **Cobranças**: não configuradas; planos locais permitem testar limites, sem pagamento. Google Play Billing/Apple pendentes. O vercel.json preservado publica apenas a apresentação estática; não hospeda a API local.
-- **Produção**: o servidor recusa iniciar com NODE_ENV=production. Publicação da apresentação anterior não equivale à publicação desta API. Não foi feito push/deploy nesta fase.
+- **Produção**: o servidor recusa iniciar com NODE_ENV=production. Publicação da apresentação anterior não equivale à publicação desta API. O GitHub distribui o código. A API de desenvolvimento roda localmente.
 
 ## Testar
 
@@ -80,4 +84,4 @@ cd apps/android
 .\gradlew.bat testDebugUnitTest assembleDebug
 ```
 
-Resultados e limitações desta execução estão em `docs/VALIDACAO_FASE2.md`. Build/APK não equivale a teste em emulador ou telefone físico.
+Resultados atuais em `STATUS-PROJETO.md` e `apps/android/BUILD_VALIDATION.md`. A Fase 2 permanece documentada em `docs/VALIDACAO_FASE2.md`. Build/APK não equivale a teste em emulador ou telefone físico.

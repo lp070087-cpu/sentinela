@@ -9,12 +9,19 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -45,6 +52,8 @@ class MainActivity : FragmentActivity() {
     private var voiceStatus by mutableStateOf("Microfone inativo.")
     private var transcript by mutableStateOf("")
     private var busy by mutableStateOf(false)
+    private var localAlarm: android.media.Ringtone? = null
+    private var alarmPlaying by mutableStateOf(false)
     private var pendingPermission = ""
     private var allowVoiceLock by mutableStateOf(false)
     private var minimumConfidence by mutableFloatStateOf(.8f)
@@ -61,6 +70,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = SecurityStore(this); protector = ProtectionController(this); location = LocationController(this)
+        minimumConfidence = store.voiceConfidence
         voice = VoiceController(this, { message, active -> voiceStatus = message; listening = active }, { text, confidence ->
             transcript = if (text.isBlank()) "Nenhuma frase reconhecida." else "Reconhecido localmente: $text"
             val match = VoiceMatcher.matches(text, store.phrases, store.phraseMode)
@@ -86,8 +96,20 @@ class MainActivity : FragmentActivity() {
             refresh()
         }
     }
-    override fun onStop() { if (::voice.isInitialized) voice.stop(); if (::location.isInitialized) location.cancel(); allowVoiceLock = false; super.onStop() }
+    override fun onStop() { stopLocalAlarm(); if (::voice.isInitialized) voice.stop(); if (::location.isInitialized) location.cancel(); allowVoiceLock = false; super.onStop() }
     override fun onDestroy() { worker.shutdownNow(); super.onDestroy() }
+    private fun stopLocalAlarm() { localAlarm?.stop(); localAlarm = null; alarmPlaying = false }
+    private fun playLocalAlarm() {
+        if (store.demoActive) return
+        stopLocalAlarm()
+        runCatching {
+            val uri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
+            localAlarm = android.media.RingtoneManager.getRingtone(this, uri)
+            localAlarm?.play(); alarmPlaying = localAlarm?.isPlaying == true
+            feedback = if (alarmPlaying) "Alarme local iniciado. Volume depende do Android; encerra em até 30 segundos." else "Android não iniciou o alarme."
+            handler.postDelayed({ stopLocalAlarm() }, 30000)
+        }.onFailure { feedback = "Não foi possível iniciar o alarme local."; stopLocalAlarm() }
+    }
     private fun refresh() { update++ }
     private fun runTask(task: () -> String) {
         if (busy) return
@@ -125,6 +147,7 @@ class MainActivity : FragmentActivity() {
         BiometricPrompt(this, mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 store.state = ProtectionState.RESOLVED
+                stopLocalAlarm()
                 runTask {
                     val api = ApiClient(this@MainActivity)
                     api.event("RESOLVED", "Emergência Sentinela encerrada após autenticação nativa. Bloqueio Android preservado.")
@@ -140,7 +163,12 @@ class MainActivity : FragmentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun SentinelaApp() {
         val tick = update
-        var tab by remember { mutableStateOf("Proteção") }
+        var tab by rememberSaveable { mutableStateOf("Início") }
+        BackHandler(enabled = tab != "Início") { voice.stop(); allowVoiceLock = false; tab = "Início" }
+        fun navigate(destination: String) { if (tab == "Voz") { voice.stop(); allowVoiceLock = false }; tab = destination }
+        val pageScroll = remember(tab) { ScrollState(0) }
+        var menuOpen by remember { mutableStateOf(false) }
+        var lostMessage by remember { mutableStateOf(store.lostMessage) }
         var server by remember { mutableStateOf(store.server) }
         var email by remember { mutableStateOf("") }
         var password by remember { mutableStateOf("") }
@@ -151,11 +179,23 @@ class MainActivity : FragmentActivity() {
         var phraseMode by remember(tick) { mutableStateOf(store.phraseMode) }
         var confirmLock by remember { mutableStateOf(false) }
         var confirmForget by remember { mutableStateOf(false) }
+        var confirmLost by remember { mutableStateOf(false) }
         val colors = lightColorScheme(primary = Green, onPrimary = Color.White, background = Paper, surface = Color.White, onSurface = Ink, secondary = Muted)
         MaterialTheme(colorScheme = colors, typography = sentinelaTypography()) {
-            Scaffold(containerColor = Paper, topBar = { TopAppBar(title = { Text("SENTINELA", style = MaterialTheme.typography.titleMedium) }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Paper), actions = { Text("DEV · NATIVO", color = Green, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(16.dp)) }) }) { padding ->
-                Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
-                    Text("Seu celular.\nSeu controle.", fontFamily = SentinelaEditorialFont, style = MaterialTheme.typography.headlineLarge, color = Ink)
+            Scaffold(containerColor = Paper, topBar = { TopAppBar(title = { Text(if (tab == "Início") "SENTINELA" else tab, style = MaterialTheme.typography.titleMedium) }, navigationIcon = { if (tab != "Início") TextButton(onClick = { navigate("Início") }) { Text("Voltar") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Paper), actions = {
+                TextButton(onClick = { menuOpen = true }) { Text("Menu") }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    listOf("Conexão", "Localização", "Celular perdido", "Recuperação", "Histórico", "Permissões", "Ajuda").forEach { route -> DropdownMenuItem(text = { Text(route) }, onClick = { menuOpen = false; navigate(route) }) }
+                }
+            }) }, bottomBar = {
+                NavigationBar(containerColor = Color.White) {
+                    listOf("Início", "Proteção", "Voz", "Mais").forEach { route ->
+                        NavigationBarItem(selected = if (route == "Mais") tab !in listOf("Início", "Proteção", "Voz") else tab == route, onClick = { navigate(route) }, icon = { NativeIcon(route) }, label = { Text(route) })
+                    }
+                }
+            }) { padding ->
+                Column(Modifier.padding(padding).fillMaxSize().verticalScroll(pageScroll).padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
+                    if (tab == "Início") Text("Seu celular. Seu controle.", fontFamily = SentinelaEditorialFont, style = MaterialTheme.typography.headlineMedium, color = Ink)
                     Text("Aplicativo nativo de desenvolvimento. As ações abaixo podem operar neste Android após sua autorização.", style = MaterialTheme.typography.bodySmall, color = Muted)
                     Button(enabled = !busy, onClick = {
                         store.demoActive = true
@@ -166,12 +206,90 @@ class MainActivity : FragmentActivity() {
                         startActivity(Intent(this@MainActivity, DemoActivity::class.java))
                     }, modifier = Modifier.fillMaxWidth()) { Text("Entrar na demonstração") }
                     Text("Sem conta ou permissões: dados fictícios, sem GPS, microfone, bloqueio ou alertas reais. Sua área nativa permanece separada.", style = MaterialTheme.typography.bodySmall, color = Muted)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("Proteção", "Voz", "Conexão").forEach { title -> FilterChip(selected = tab == title, onClick = { tab = title }, label = { Text(title) }) }
-                    }
                     if (feedback.isNotBlank()) Surface(color = Color(0xFFE4F0E9), shape = RoundedCornerShape(10.dp)) { Text(feedback, color = Ink, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp)) }
                     if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                     when (tab) {
+                        "Início" -> {
+                            Section("Proteção deste Android") {
+                                Text(stateLabel(store.state), style = MaterialTheme.typography.headlineSmall, color = Green)
+                                Text("${Build.MANUFACTURER} ${Build.MODEL}", style = MaterialTheme.typography.titleMedium)
+                                Text(store.syncStatus, style = MaterialTheme.typography.bodySmall, color = Muted)
+                                Text("Microfone: ${if (listening) "sessão ativa" else "inativo"} · Localização: ${if (location.permitted() && store.locationConsent) "autorizada" else "pendente"}", style = MaterialTheme.typography.bodySmall)
+                                Button(onClick = { navigate("Proteção") }, modifier = Modifier.fillMaxWidth()) { Text("Gerenciar proteção") }
+                                OutlinedButton(onClick = { navigate("Permissões") }, modifier = Modifier.fillMaxWidth()) { Text("Revisar permissões") }
+                            }
+                            Section("Acesso rápido") {
+                                OutlinedButton(onClick = { confirmLock = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Emergência · revisar bloqueio") }
+                                OutlinedButton(onClick = { navigate("Celular perdido") }, modifier = Modifier.fillMaxWidth()) { Text("Celular perdido") }
+                                Text("Última posição: ${store.lastLocation}", style = MaterialTheme.typography.bodySmall, color = Muted)
+                            }
+                            Section("Atividade recente") {
+                                if (store.logs().isEmpty()) Text("Nenhuma atividade local registrada.", style = MaterialTheme.typography.bodySmall)
+                                store.logs().take(3).forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = Muted) }
+                                TextButton(onClick = { navigate("Histórico") }) { Text("Ver histórico") }
+                            }
+                        }
+                        "Mais" -> Section("Todas as áreas") {
+                            listOf("Conexão", "Localização", "Celular perdido", "Recuperação", "Histórico", "Permissões", "Ajuda").forEach { route -> OutlinedButton(onClick = { navigate(route) }, modifier = Modifier.fillMaxWidth()) { Text(route) } }
+                            Text("Contatos, dispositivos da conta, notificações, assinatura e perfil estão no painel autenticado. A demonstração contém todos os módulos offline.", style = MaterialTheme.typography.bodySmall, color = Muted)
+                            OutlinedButton(onClick = { navigate("Conexão") }, modifier = Modifier.fillMaxWidth()) { Text("Abrir minha conta no painel") }
+                        }
+                        "Localização" -> {
+                            Section("Localização autorizada") {
+                                Row { Checkbox(checked = consentLocation, onCheckedChange = { consentLocation = it; store.locationConsent = it; if (!it) { location.cancel(); store.purgePendingLocations(); feedback = "Consentimento retirado. Posições pendentes excluídas; dados já enviados devem ser excluídos no painel." } }); Text("Permitir capturar e sincronizar minha posição ao tocar no botão.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 12.dp)) }
+                                Text(store.lastLocation, style = MaterialTheme.typography.bodySmall, color = Muted)
+                                Button(enabled = consentLocation && !busy, onClick = { pendingPermission = "location"; permissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }, modifier = Modifier.fillMaxWidth()) { Text("Capturar posição atual") }
+                                Text("Sem GPS permanente. Ao desligar, o painel mantém a última posição. A rede Buscar/Find Hub é separada e depende do aparelho.", style = MaterialTheme.typography.bodySmall, color = Muted)
+                            }
+                        }
+                        "Histórico" -> {
+                            Section("Histórico deste Android") { if (store.logs().isEmpty()) Text("Nenhuma atividade registrada neste Android.", style = MaterialTheme.typography.bodySmall); store.logs().forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = Muted); HorizontalDivider() }; OutlinedButton(onClick = { store.clearLocalHistory(); refresh(); feedback = "Histórico e posições locais excluídos. Dados já sincronizados devem ser excluídos pelo painel." }) { Text("Excluir histórico local") } }
+                        }
+                        "Permissões" -> {
+                            Section("Diagnóstico do dispositivo") {
+                                PermissionStatus("Administração para bloquear", protector.authorized())
+                                PermissionStatus("PIN, padrão ou senha Android", protector.screenSecure())
+                                PermissionStatus("Localização Android", location.permitted())
+                                PermissionStatus("Consentimento de localização", store.locationConsent)
+                                PermissionStatus("Microfone", checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+                                PermissionStatus("Reconhecimento local", voice.available())
+                                PermissionStatus("Notificações", getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled())
+                                PermissionStatus("Biometria forte ou credencial", BiometricManager.from(this@MainActivity).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS)
+                                PermissionStatus("Dispositivo cadastrado", store.token.isNotBlank())
+                                PermissionStatus("Sincronização autorizada", store.remoteEnabled)
+                                Text("Permissões não são concedidas automaticamente. Ative cada recurso na respectiva tela.", style = MaterialTheme.typography.bodySmall, color = Muted)
+                                OutlinedButton(onClick = { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }, modifier = Modifier.fillMaxWidth()) { Text("Configurações do aplicativo no Android") }
+                                OutlinedButton(onClick = { refresh(); feedback = "Diagnóstico atualizado." }, modifier = Modifier.fillMaxWidth()) { Text("Atualizar diagnóstico") }
+                            }
+                        }
+                        "Celular perdido" -> Section("Mensagem do aparelho") {
+                            Text(stateLabel(store.state), color = Green)
+                            OutlinedTextField(value = lostMessage, onValueChange = { lostMessage = it.take(300) }, label = { Text("Mensagem e telefone para contato") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+                            Button(enabled = lostMessage.isNotBlank() && !busy, onClick = { store.lostMessage = lostMessage.trim(); store.log("Mensagem local de modo perdido atualizada."); refresh(); feedback = "Mensagem salva neste aplicativo. Para ativar remotamente, utilize o painel autenticado." }, modifier = Modifier.fillMaxWidth()) { Text("Salvar mensagem neste Android") }
+                            OutlinedButton(enabled = lostMessage.isNotBlank() && !busy && store.state != ProtectionState.LOST, onClick = { confirmLost = true }, modifier = Modifier.fillMaxWidth()) { Text("Ativar modo perdido neste aplicativo") }
+                            OutlinedButton(onClick = { if (alarmPlaying) stopLocalAlarm() else playLocalAlarm() }, modifier = Modifier.fillMaxWidth()) { Text(if (alarmPlaying) "Parar alarme local" else "Testar alarme local audível") }
+                            Text("O modo perdido remoto pode bloquear este aparelho quando autorizado. A mensagem é exibida no aplicativo e não substitui a tela de bloqueio do Android. Alarme remoto depende da sincronização autorizada.", style = MaterialTheme.typography.bodySmall, color = Muted)
+                            Text(store.lastLocation, style = MaterialTheme.typography.bodySmall, color = Muted)
+                            OutlinedButton(onClick = { navigate("Conexão") }, modifier = Modifier.fillMaxWidth()) { Text("Gerenciar modo perdido no painel") }
+                            if (store.state in setOf(ProtectionState.LOST, ProtectionState.EMERGENCY, ProtectionState.RECOVERING)) OutlinedButton(onClick = { navigate("Recuperação") }, modifier = Modifier.fillMaxWidth()) { Text("Encerrar com autenticação nativa") }
+                        }
+                        "Recuperação" -> Section("Recuperar proteção") {
+                            Text(stateLabel(store.state), color = Green)
+                            Text("1. Confirme sua identidade com biometria forte ou credencial do Android.\n2. Encerre a emergência Sentinela.\n3. Reative a proteção na tela Proteção quando desejar.", style = MaterialTheme.typography.bodyMedium)
+                            Button(enabled = !busy && store.state in setOf(ProtectionState.EMERGENCY, ProtectionState.LOST, ProtectionState.RECOVERING), onClick = { recoverWithBiometrics() }, modifier = Modifier.fillMaxWidth()) { Text("Verificar identidade e encerrar") }
+                            Text("Sua voz não autoriza recuperação. Esta ação não remove PIN, senha ou bloqueio nativo. Recuperação de conta e e-mail estão no painel autenticado.", style = MaterialTheme.typography.bodySmall, color = Muted)
+                            OutlinedButton(onClick = { navigate("Conexão") }, modifier = Modifier.fillMaxWidth()) { Text("Recuperar minha conta no painel") }
+                        }
+                        "Ajuda" -> {
+                            Section("Como configurar") {
+                                Text("Autorize administração apenas para bloqueio voluntário. Configure PIN no Android. Para voz, autorize o microfone e inicie uma sessão com o aplicativo visível. Para posição, autorize localização e capture explicitamente. Ative sincronização apenas para receber comandos da sua conta.", style = MaterialTheme.typography.bodyMedium)
+                            }
+                            Section("Compatibilidade e privacidade") {
+                                Text("Android 12 ou superior · ${Build.VERSION.RELEASE} neste aparelho. Reconhecimento local depende do motor instalado. Sem escuta permanente, GPS após desligar ou interceptação de Power/Volume. O SOS e as chamadas de emergência do Android são preservados.", style = MaterialTheme.typography.bodySmall)
+                                Text("Credencial do dispositivo cifrada no Android Keystore. Voz processada localmente sem gravação de áudio. Posição somente com consentimento. Remova dados sincronizados e revogue o dispositivo no painel da conta.", style = MaterialTheme.typography.bodySmall)
+                                OutlinedButton(onClick = { navigate("Permissões") }, modifier = Modifier.fillMaxWidth()) { Text("Ver diagnóstico técnico") }
+                            }
+                        }
                         "Proteção" -> {
                             Section("Estado do aparelho") {
                                 Text(stateLabel(store.state), style = MaterialTheme.typography.headlineSmall, color = Green)
@@ -185,13 +303,6 @@ class MainActivity : FragmentActivity() {
                                 Text("Não impede desligamento, não intercepta SOS e não remove o bloqueio de segurança do sistema.", style = MaterialTheme.typography.bodySmall, color = Muted)
                             }
                             if (store.state == ProtectionState.LOST) Section("Aparelho marcado como perdido") { Text(store.lostMessage); Text("Mensagem exibida apenas no aplicativo. Tela de bloqueio nativa preservada.", style = MaterialTheme.typography.bodySmall) }
-                            Section("Localização autorizada") {
-                                Row { Checkbox(checked = consentLocation, onCheckedChange = { consentLocation = it; store.locationConsent = it; if (!it) { location.cancel(); store.purgePendingLocations(); feedback = "Consentimento retirado. Posições pendentes excluídas; dados já enviados devem ser excluídos no painel." } }); Text("Permitir capturar e sincronizar minha posição ao tocar no botão.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 12.dp)) }
-                                Text(store.lastLocation, style = MaterialTheme.typography.bodySmall, color = Muted)
-                                Button(enabled = consentLocation && !busy, onClick = { pendingPermission = "location"; permissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }, modifier = Modifier.fillMaxWidth()) { Text("Capturar posição atual") }
-                                Text("Sem GPS permanente. Ao desligar, o painel mantém a última posição. A rede Buscar/Find Hub é separada e depende do aparelho.", style = MaterialTheme.typography.bodySmall, color = Muted)
-                            }
-                            Section("Histórico deste Android") { store.logs().take(8).forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = Muted); HorizontalDivider() }; OutlinedButton(onClick = { store.clearLocalHistory(); refresh(); feedback = "Histórico e posições locais excluídos. Dados já sincronizados devem ser excluídos pelo painel." }) { Text("Excluir histórico local") } }
                         }
                         "Voz" -> {
                             Section("Sua frase. Seu acionamento.") {
@@ -200,7 +311,7 @@ class MainActivity : FragmentActivity() {
                                 Button(onClick = { val items = phrases.lines().map(String::trim).filter { it.length in 3..60 }.distinct().take(8); if (items.isEmpty()) feedback = "Adicione pelo menos uma frase de 3 a 60 caracteres." else { store.phrases = items; phrases = items.joinToString("\n"); feedback = "Frases salvas. Faça testes negativos antes de permitir bloqueio."; refresh() } }, modifier = Modifier.fillMaxWidth()) { Text("Salvar frases") }
                                 Row { Switch(checked = phraseMode, onCheckedChange = { phraseMode = it; store.phraseMode = it }); Text("Detectar frase inteira dentro de uma sentença. Desligado: transcrição precisa corresponder exatamente.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 12.dp)) }
                                 Text("Confiança mínima: ${(minimumConfidence * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-                                Slider(value = minimumConfidence, onValueChange = { minimumConfidence = it }, valueRange = .7f..1f)
+                                Slider(value = minimumConfidence, onValueChange = { minimumConfidence = it; store.voiceConfidence = it }, valueRange = .7f..1f)
                                 Row { Checkbox(checked = allowVoiceLock, onCheckedChange = { allowVoiceLock = it }); Text("Autorizar bloqueio real nesta sessão se a frase corresponder e a proteção estiver ativa.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 12.dp)) }
                                 Text(voiceStatus, color = if (listening) Green else Muted, style = MaterialTheme.typography.bodyMedium)
                                 Button(enabled = !listening && voice.available(), onClick = { pendingPermission = "voice"; permissions.launch(arrayOf(Manifest.permission.RECORD_AUDIO)) }, modifier = Modifier.fillMaxWidth()) { Text("Iniciar sessão de voz local") }
@@ -249,12 +360,42 @@ class MainActivity : FragmentActivity() {
                             }
                         }
                     }
-                    Text("DESENVOLVIDO POR UNITRIXAPP · 0.2.0 DEV", style = MaterialTheme.typography.labelSmall, color = Muted, modifier = Modifier.padding(vertical = 20.dp))
+                    Text("DESENVOLVIDO POR UNITRIXAPP · 0.3.0 DEV", style = MaterialTheme.typography.labelSmall, color = Muted, modifier = Modifier.padding(vertical = 20.dp))
                 }
+                if (confirmLost) AlertDialog(onDismissRequest = { confirmLost = false }, title = { Text("Ativar modo perdido local?") }, text = { Text("A mensagem será exibida neste aplicativo e o estado poderá ser enviado ao servidor cadastrado. Esta ação não bloqueia a tela Android nem toca alarme automaticamente.") }, confirmButton = { TextButton(onClick = { confirmLost = false; store.lostMessage = lostMessage.trim(); store.state = ProtectionState.LOST; store.log("Modo perdido local ativado explicitamente."); runTask { val api = ApiClient(this@MainActivity); api.event("LOST", "Modo perdido ativado localmente pelo proprietário; sem bloqueio automático."); runCatching { api.flush() }.fold({ "Modo perdido salvo. Se cadastrado, estado sincronizado." }, { "Modo perdido salvo localmente; sincronização pendente." }) } }) { Text("Ativar modo perdido") } }, dismissButton = { TextButton(onClick = { confirmLost = false }) { Text("Cancelar") } })
                 if (confirmLock) AlertDialog(onDismissRequest = { confirmLock = false }, title = { Text("Bloquear este aparelho?") }, text = { Text("O Android exigirá sua credencial nativa para desbloquear. O Sentinela não conhece nem remove seu PIN. Você autoriza este teste agora?") }, confirmButton = { TextButton(onClick = { confirmLock = false; runTask { protector.lock("MANUAL_TRIGGER").message.also { runCatching { ApiClient(this@MainActivity).flush() } } } }) { Text("Autorizar bloqueio agora") } }, dismissButton = { TextButton(onClick = { confirmLock = false }) { Text("Cancelar") } })
                 if (confirmForget) AlertDialog(onDismissRequest = { confirmForget = false }, title = { Text("Desconectar localmente?") }, text = { Text("O token será removido deste Android. Revogue também o dispositivo no painel web. O estado de emergência e o bloqueio nativo não serão removidos.") }, confirmButton = { TextButton(onClick = { confirmForget = false; store.clearConnection(); stopService(Intent(this@MainActivity, SyncService::class.java)); refresh() }) { Text("Desconectar") } }, dismissButton = { TextButton(onClick = { confirmForget = false }) { Text("Cancelar") } })
             }
         }
+    }
+    @Composable private fun NativeIcon(route: String) {
+        Canvas(Modifier.size(23.dp).semantics { contentDescription = route }) {
+            val w = size.width; val h = size.height; val line = 1.7.dp.toPx()
+            when (route) {
+                "Início" -> {
+                    drawLine(Green, Offset(w * .15f, h * .45f), Offset(w * .5f, h * .15f), line)
+                    drawLine(Green, Offset(w * .5f, h * .15f), Offset(w * .85f, h * .45f), line)
+                    drawRect(Green, Offset(w * .25f, h * .45f), androidx.compose.ui.geometry.Size(w * .5f, h * .4f), style = Stroke(line))
+                }
+                "Proteção" -> {
+                    val shield = androidx.compose.ui.graphics.Path().apply { moveTo(w * .5f, h * .1f); lineTo(w * .85f, h * .25f); lineTo(w * .8f, h * .6f); quadraticBezierTo(w * .7f, h * .8f, w * .5f, h * .9f); quadraticBezierTo(w * .3f, h * .8f, w * .2f, h * .6f); lineTo(w * .15f, h * .25f); close() }
+                    drawPath(shield, Green, style = Stroke(line))
+                }
+                "Voz" -> {
+                    drawRoundRect(Green, Offset(w * .35f, h * .1f), androidx.compose.ui.geometry.Size(w * .3f, h * .5f), androidx.compose.ui.geometry.CornerRadius(w * .15f), style = Stroke(line))
+                    drawArc(Green, 0f, 180f, false, Offset(w * .2f, h * .3f), androidx.compose.ui.geometry.Size(w * .6f, h * .45f), style = Stroke(line))
+                    drawLine(Green, Offset(w * .5f, h * .75f), Offset(w * .5f, h * .9f), line)
+                }
+                else -> for (i in 0..2) drawLine(Green, Offset(w * .2f, h * (.25f + i * .25f)), Offset(w * .8f, h * (.25f + i * .25f)), line)
+            }
+        }
+    }
+    @Composable private fun PermissionStatus(label: String, granted: Boolean) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            Text(if (granted) "Disponível" else "Pendente", style = MaterialTheme.typography.labelSmall, color = if (granted) Green else Muted)
+        }
+        HorizontalDivider(color = Color(0xFFE8ECE8))
     }
     @Composable private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
         Surface(color = Color.White, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {

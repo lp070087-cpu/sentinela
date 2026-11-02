@@ -1,43 +1,24 @@
-# SENTINELA — fase 2 e demonstração
+# SENTINELA — Fase 3
 
-## Iniciar
-Requer Node.js24+. Na raiz: `npm run dev` (sem dependências npm). Opcional: copie `.env.example` para `.env`.
-- Apresentação preservada: http://localhost:4173/
-- Login: http://localhost:4173/panel.html
-- Entre sem conta pelo botão **Entrar na demonstração**, ou abra http://localhost:4173/demo-app.html.
+## Executar
 
-## DEMO isolada
-Dez módulos interativos: dashboard, comandos de voz, acionamentos, localização fictícia, celular perdido, contatos, recuperação, painel de recuperação, assinatura e perfil. A apresentação original mantém suas14telas.
+Na raiz do checkout, com Node.js 24+, execute `npm run dev`. A apresentação original permanece em `http://localhost:4173/`. Abra `http://localhost:4173/panel.html` para cadastro e login local ou selecione **Entrar na demonstração**. A URL direta é `http://localhost:4173/demo-app.html`.
 
-Voz/contatos têm CRUD; emergência possui6etapas; plano mensal/anual oferece seleção, contratação, renovação e cancelamento simulados; há alarme voluntário, fila de comandos simulados, preferências, notificações, persistência e **Restaurar dados de demonstração**. Usa chave própria localStorage, sem fetch/API, GPS ou microfone. CSP bloqueia conexões de API.
+## Mudanças desta fase
 
-No Android, **Entrar na demonstração** abre os mesmos arquivos offline em WebView isolado: sem ponte JavaScript, rede, acesso a arquivos externos ou permissões. As ações nativas reais são bloqueadas enquanto a demo está aberta; sair não encerra uma emergência real.
+- **DEMO:** 16 módulos com rotas por fragmento: `dashboard`, `onboarding`, `protection`, `voice`, `physical`, `location`, `lost`, `contacts`, `recovery`, `web`, `devices`, `incidents`, `notifications`, `plans`, `profile` e `help`. Emergência, alarme, voz, posição, recuperação e assinatura são simulados. Alterações persistem no navegador. O perfil oferece restauração, exportação e exclusão dos dados fictícios. O pacote Android carrega os mesmos arquivos offline.
+- **Painel local:** 16 áreas em `/panel.html` com menu superior direito no celular e barra lateral no desktop. Edição de perfil, contatos e nome do aparelho, notificações, detalhes de incidentes e gestão de dados usam SQLite autenticado. Os contratos estão em [API_FASE3.md](docs/API_FASE3.md).
+- **Android:** navegação inferior Compose, diagnóstico, histórico, localização consentida, modo perdido local com alarme voluntário e recuperação autenticada. As áreas de conta, contatos e assinatura permanecem no painel web autenticado. [Validação Android](apps/android/BUILD_VALIDATION.md).
 
-## Backend local real
-Cadastro/login, scrypt, sessões HttpOnly, CSRF, ownership, códigos aleatórios expirantes e uso único, recuperação/revogação, cadastro/pareamento de dispositivos, tokens por aparelho, eventos/estados deduplicados, posições com precisão/data, retenção/exclusão, contatos com consentimento, fila/lease/ACK, auditoria e estrutura de assinatura sem cobrança. SQLite persistente; produção bloqueada até migração/infraestrutura.
+## Verificação
 
-E-mail e SMS usam caixa de entrega de desenvolvimento. Isso testa o fluxo, não comprova posse ou entrega real. Nenhuma senha/código fixo libera APIs reais.
+- `npm test`: 42 testes aprovados, incluindo persistência, isolamento entre contas, CSRF, autenticação, revogação, exclusão de conta e cenários DEMO.
+- `npm run check` e `node scripts/sync-demo.mjs --check`: sintaxe e igualdade dos seis arquivos DEMO entre web e Android.
+- A renderização das 16 áreas do painel foi exercitada com um ambiente DOM de teste. O navegador remoto não alcançou o servidor local. Validação visual nas seis larguras e Safari/iPhone segue pendente.
+- Android: JDK 17 disponível. Sem SDK/cache Gradle e com download bloqueado pela rede, o wrapper não chegou à compilação. Testes JVM, APK da Fase 3 e validação física pendentes.
 
-## Android nativo
-Kotlin/Compose, DevicePolicyManager apenas force-lock autorizado, sessão local finita de voz quando suportada, localização pontual consentida, biometria/credencial nativa, token Keystore, fila offline, serviço foreground voluntário para comandos e notificação de bloqueio, modo perdido dentro do aplicativo, alarme autenticado e recuperação sem remover PIN.
+## Continuidade
 
-APK debug Android12+ em `apps/android/app/build/outputs/apk/debug/app-debug.apk`. Build e6testes JVM passaram; assinatura verificada. Consulte `apps/android/BUILD_VALIDATION.md`.
+No Windows, preserve mudanças locais e sincronize o checkout oficial. Se estiver usando um ZIP, [siga a importação segura para Desktop/OneDrive](docs/CONTINUAR_NO_WINDOWS.md). Para compilar após instalar JDK 17 e SDK 35, execute `node scripts/sync-demo.mjs --check` na raiz e `gradlew.bat testDebugUnitTest assembleDebug` em `apps/android`.
 
-## Testes efetivos
-32testes automatizados backend/contratos/demo, checks de sintaxe e6testes JVM Android. Navegador Chromium: entrada DEMO pelo login; navegação nos10módulos; emergência6etapas; comandos CRUD; contato; perda/alarme; recuperação; contratação/cancelamento/renovação; persistência/reload; perfil; logout/entrada; restauração; comando remoto com retorno explícito. Larguras de iframe320,360,375,390,768,1440px sem overflow horizontal; menu móvel fecha após navegação.
-
-Não houve emulador/aparelho físico nem Safari/iPhone real. Compilação não comprova lockNow, microfone, GPS ou biometria em hardware. A área autenticada real foi validada via HTTP, sem teste visual completo de conta no navegador.
-
-## Ambiente Windows e continuidade
-Este trabalho ocorreu em Linux remoto `/workspace/sites/sentinela`. Desktop/OneDrive do Windows não está montado e não foi conectado. Baixe o código e use `docs/IMPORTAR_WINDOWS.ps1` com ZIP para importar na pasta sentinela existente, preservando conflitos como `.incoming-*`; depois abra no VSCode/Claude/Codex. Consulte README.md e docs/CONTINUAR_NO_WINDOWS.md.
-
-Para USB autorizado: `adb reverse tcp:4173 tcp:4173`; URL do app http://127.0.0.1:4173. Emulador oficial: http://10.0.2.2:4173. Compile em apps/android com JDK17/SDK35: `gradlew.bat testDebugUnitTest assembleDebug`.
-
-## Pendências reais
-Neon/adapter PostgreSQL (schema Prisma preparado), FCM/push e entregabilidade e-mail/SMS, mapa geográfico (esquema com coordenadas recebido hoje), MFA/passkeys web, aprovação de recuperação por contato, Billing real, widget/tile, teste físico Android e iOS nativo. Não há GPS depois de desligar, escuta permanente nem interceptação livre de Power/volume/SOS.
-
-## Publicação
-Destino autorizado: https://github.com/lp070087-cpu/sentinela.git, branch main. Git do terminal sem credencial de escrita: publicação pela integração GitHub autenticada, sem force. Histórico original exato preservado no bundle e referência local, descrito em docs/HISTORICO-PRESERVADO.md. Nenhum deploy Vercel nesta fase. vercel.json original só publica a apresentação estática, não a API SQLite.
-
-## Recuperação do ambiente
-A manutenção automática removeu arquivos temporários entre turnos. O checkpoint de62fontes e o histórico original foram recuperados; a DEMO foi recomposta e o APK foi recompilado e novamente testado. Não confundir resultados antigos com os testes desta execução. Cópias finais e GitHub evitam depender do ambiente temporário.
+Para produção faltam adaptação PostgreSQL/Neon, validação de e-mail/SMS e push, cobrança e teste em Android físico. O SQLite e a caixa de entrega são de desenvolvimento. A API recusa iniciar em produção. Combinações Power/Volume permanecem simulações.

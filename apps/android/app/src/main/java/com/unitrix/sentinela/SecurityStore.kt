@@ -38,6 +38,9 @@ class SecurityStore(context: Context) {
     var phraseMode: Boolean
         get() = preferences.getBoolean("phraseMode", false)
         set(value) { preferences.edit().putBoolean("phraseMode", value).apply() }
+    var voiceConfidence: Float
+        get() = preferences.getFloat("voiceConfidence", .8f).let { if (it.isFinite()) it.coerceIn(.7f, 1f) else .8f }
+        set(value) { if (value.isFinite()) preferences.edit().putFloat("voiceConfidence", value.coerceIn(.7f, 1f)).apply() }
     var phrases: List<String>
         get() = runCatching { val arr = JSONArray(preferences.getString("phrases", "[\"assalto\",\"socorro\"]") ?: "[]"); (0 until arr.length()).map(arr::getString) }.getOrDefault(listOf("assalto", "socorro"))
         set(value) { preferences.edit().putString("phrases", JSONArray(value).toString()).apply() }
