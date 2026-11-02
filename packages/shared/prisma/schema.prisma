@@ -1,0 +1,232 @@
+// Proposed PostgreSQL/Neon target, NOT the currently running SQLite backend.
+// Requires an explicit migration/adaptation, Prisma dependency, reviewed SQL,
+// production credentials, transport providers and deployment before real use.
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+enum DeviceState {
+  DISABLED
+  ACTIVE
+  EMERGENCY
+  LOST
+  RECOVERING
+  RESOLVED
+}
+enum CommandType {
+  LOCK
+  LOST
+  RECOVER
+  ALARM
+  STOP_ALARM
+}
+enum CommandStatus {
+  QUEUED
+  LEASED
+  SUCCEEDED
+  FAILED
+  EXPIRED
+  CANCELLED
+}
+enum SubscriptionStatus {
+  PENDING
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+enum PlanCode {
+  ESSENTIAL
+  PLUS
+  FAMILY
+}
+model User {
+  id              String   @id @default(uuid()) @db.Uuid
+  email           String   @unique
+  name            String
+  passwordHash    String
+  emailVerifiedAt DateTime?
+  phone           String?
+  phoneVerifiedAt DateTime?
+  retentionDays   Int      @default(30)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  sessions        Session[]
+  devices         Device[]
+  contacts        TrustedContact[]
+  challenges      VerificationChallenge[]
+  accessEvents    AccessEvent[]
+  auditEvents     AuditEvent[]
+  subscription    Subscription?
+  notifications   Notification[]
+  recoveries      RecoveryRequest[]
+}
+model Session {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  user         User     @relation(fields:[userId],references:[id],onDelete:Cascade)
+  tokenHash    String   @unique
+  csrfHash     String
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  stepUpAt     DateTime?
+  @@index([userId,expiresAt])
+}
+model Device {
+  id           String      @id @default(uuid()) @db.Uuid
+  userId       String      @db.Uuid
+  user         User        @relation(fields:[userId],references:[id],onDelete:Cascade)
+  name         String
+  platform     String      @default("ANDROID")
+  tokenHash    String      @unique
+  state        DeviceState @default(DISABLED)
+  registeredAt DateTime    @default(now())
+  lastSeenAt   DateTime?
+  revokedAt    DateTime?
+  capabilities Json?
+  incidents    Incident[]
+  commands     DeviceCommand[]
+  locations    LocationFix[]
+  recoveries   RecoveryRequest[]
+  @@index([userId,revokedAt])
+}
+model Incident {
+  id        String      @id @default(uuid()) @db.Uuid
+  deviceId  String      @db.Uuid
+  device    Device      @relation(fields:[deviceId],references:[id],onDelete:Cascade)
+  type      String
+  state     DeviceState
+  details   String?
+  lockResult String?
+  createdAt DateTime    @default(now())
+  @@index([deviceId,createdAt])
+}
+model DeviceCommand {
+  id             String        @id @default(uuid()) @db.Uuid
+  deviceId       String        @db.Uuid
+  device         Device        @relation(fields:[deviceId],references:[id],onDelete:Cascade)
+  type           CommandType
+  status         CommandStatus @default(QUEUED)
+  payload        Json?
+  createdAt      DateTime      @default(now())
+  expiresAt      DateTime
+  deliveredAt    DateTime?
+  acknowledgedAt DateTime?
+  leaseUntil     DateTime?
+  result         Json?
+  @@index([deviceId,status,expiresAt])
+}
+model LocationFix {
+  id         String   @id @default(uuid()) @db.Uuid
+  deviceId   String   @db.Uuid
+  device     Device   @relation(fields:[deviceId],references:[id],onDelete:Cascade)
+  latitude   Float
+  longitude  Float
+  accuracy   Float
+  capturedAt DateTime
+  receivedAt DateTime @default(now())
+  @@index([deviceId,capturedAt])
+}
+model TrustedContact {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  user            User     @relation(fields:[userId],references:[id],onDelete:Cascade)
+  name            String
+  phone           String
+  email           String?
+  phoneVerifiedAt DateTime?
+  emailVerifiedAt DateTime?
+  allowAlerts     Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  challenges      VerificationChallenge[]
+  @@index([userId])
+}
+model VerificationChallenge {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  user        User     @relation(fields:[userId],references:[id],onDelete:Cascade)
+  contactId   String?  @db.Uuid
+  contact     TrustedContact? @relation(fields:[contactId],references:[id],onDelete:Cascade)
+  kind        String
+  tokenHash   String
+  attempts    Int      @default(0)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime @default(now())
+  @@index([userId,kind,expiresAt])
+  @@index([tokenHash])
+}
+model AccessEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  user      User?    @relation(fields:[userId],references:[id],onDelete:SetNull)
+  kind      String
+  success   Boolean
+  createdAt DateTime @default(now())
+  @@index([userId,createdAt])
+}
+model AuditEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields:[userId],references:[id],onDelete:Cascade)
+  action    String
+  targetId  String?
+  createdAt DateTime @default(now())
+  @@index([userId,createdAt])
+}
+model Subscription {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @unique @db.Uuid
+  user            User     @relation(fields:[userId],references:[id],onDelete:Cascade)
+  plan            PlanCode @default(ESSENTIAL)
+  status          SubscriptionStatus @default(PENDING)
+  deviceLimit     Int      @default(1)
+  provider        String?
+  providerId      String?  @unique
+  renewsAt        DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime @default(now())
+  payments        Payment[]
+}
+model Payment {
+  id             String       @id @default(uuid()) @db.Uuid
+  subscriptionId String       @db.Uuid
+  subscription   Subscription @relation(fields:[subscriptionId],references:[id],onDelete:Cascade)
+  providerId     String?      @unique
+  amountMinor    Int
+  currency       String       @default("BRL")
+  status         String
+  createdAt      DateTime     @default(now())
+  paidAt         DateTime?
+}
+model Notification {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  user       User     @relation(fields:[userId],references:[id],onDelete:Cascade)
+  channel    String
+  destination String
+  kind       String
+  status     String
+  providerId String?
+  createdAt  DateTime @default(now())
+  sentAt     DateTime?
+  @@index([userId,createdAt])
+}
+model RecoveryRequest {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  user       User     @relation(fields:[userId],references:[id],onDelete:Cascade)
+  deviceId   String   @db.Uuid
+  device     Device   @relation(fields:[deviceId],references:[id],onDelete:Cascade)
+  method     String
+  status     String
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+  approvedAt DateTime?
+  @@index([userId,createdAt])
+}

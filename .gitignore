@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+apps/web/data/
+node_modules/
+*.log
+*.zip
+apps/android/.gradle/
+apps/android/local.properties
+apps/android/**/build/

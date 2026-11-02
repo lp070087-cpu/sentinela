@@ -1,0 +1,15 @@
+{
+  "name": "sentinela",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env apps/web/server.mjs",
+    "start": "node --env-file-if-exists=.env apps/web/server.mjs",
+    "test": "node --test tests/*.test.mjs packages/shared/*.test.mjs",
+    "check": "node --check apps/web/server.mjs && node --check apps/web/service.mjs && node --check apps/web/public/panel.js && node --check dist/app.js && node --check apps/web/public/demo-app.js && node --check apps/web/public/demo-store.mjs"
+  }
+}

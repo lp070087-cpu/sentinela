@@ -1,0 +1,9 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createService} from '../apps/web/service.mjs';
+async function fixture(t){const dir=mkdtempSync(join(tmpdir(),'sentinela-retention-'));const api=createService(join(dir,'test.sqlite'),{delivery:{},development:true});t.after(()=>{api.close();rmSync(dir,{recursive:true,force:true})});await api.register({name:'Development Test',email:'retention@example.test',password:'Local-regression-test-2026!'});const login=api.login({email:'retention@example.test',password:'Local-regression-test-2026!'});const session=api.session(login.token);api.verifyEmail({token:api.outbox(session).messages[0].token});const registered=api.registerDevice(session,{name:'Test Android',platform:'ANDROID'});return{api,session,registered}}
+test('retention pruning cannot turn an existing emergency into a first-event bootstrap',async t=>{const{api,session,registered}=await fixture(t);await api.event(api.deviceAuth(registered.deviceToken),{state:'EMERGENCY',type:'TRIGGER'});api.db.prepare('UPDATE events SET created_at=?').run(Date.now()-31*864e5);api.settings(session,{retentionDays:1});assert.equal(api.incidents(session).incidents.length,0);await assert.rejects(api.event(api.deviceAuth(registered.deviceToken),{state:'DISABLED',type:'STALE_DISABLE'}),e=>e.status===409);assert.equal(api.devices(session).devices[0].state,'EMERGENCY')});
+test('a newly enrolled device can bootstrap its persisted resolved state',async t=>{const{api,session,registered}=await fixture(t);const response=await api.event(api.deviceAuth(registered.deviceToken),{state:'RESOLVED',type:'STATE_REGISTERED'});assert.equal(response.ok,true);assert.equal(api.devices(session).devices[0].state,'RESOLVED')});
