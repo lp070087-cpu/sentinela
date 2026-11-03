@@ -23,8 +23,15 @@ jobs:
           npm run check
           npm test
           node scripts/sync-demo.mjs --check
-      - name: Install SDK packages
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - name: Verify SDK installation
+        run: |
+          sdkmanager --version
+          test -f "$ANDROID_HOME/platforms/android-35/android.jar"
+          test -x "$ANDROID_HOME/build-tools/35.0.0/apksigner"
       - name: Test and assemble Android
         working-directory: apps/android
         run: bash gradlew testDebugUnitTest assembleDebug --console=plain
