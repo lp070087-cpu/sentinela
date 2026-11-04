@@ -23,6 +23,7 @@ import java.net.URL
 internal class AccountApi(private val context: Context) {
     private var cookie = ""
     private var csrf = ""
+    private var sessionOrigin = ""
     var signedIn = false
         private set
 
@@ -30,7 +31,9 @@ internal class AccountApi(private val context: Context) {
         check(!SecurityStore(context).demoActive) { "O DEMO não pode acessar a conta real." }
         val base = ApiAddress.validate(origin, BuildConfig.DEBUG)
         require(path.startsWith("/api/")) { "Rota de conta inválida." }
-        if (secured) check(signedIn && cookie.isNotBlank() && csrf.isNotBlank()) { "Entre na sua conta novamente." }
+        if (secured) check(signedIn && base == sessionOrigin && cookie.isNotBlank() && csrf.isNotBlank()) {
+            "Entre novamente no servidor desta conta."
+        }
         val connection = URL(base + path).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = verb
@@ -61,6 +64,7 @@ internal class AccountApi(private val context: Context) {
                 check(receivedCookie.startsWith("sentinela_session=") && receivedCsrf.isNotBlank()) { "Não foi possível validar a sessão." }
                 cookie = receivedCookie
                 csrf = receivedCsrf
+                sessionOrigin = base
                 signedIn = true
             }
             return result
@@ -69,7 +73,12 @@ internal class AccountApi(private val context: Context) {
         }
     }
 
-    fun clear() { cookie = ""; csrf = ""; signedIn = false }
+    fun clear() {
+        cookie = ""
+        csrf = ""
+        sessionOrigin = ""
+        signedIn = false
+    }
     fun login(base: String, email: String, password: String): JSONObject {
         clear()
         val result = request(base, "/api/auth/login", "POST", JSONObject().put("email", email).put("password", password), false)
@@ -155,6 +164,9 @@ internal fun AccountPortal(api: AccountApi, initialServer: String, openProtectio
                 if (!api.signedIn) { connected = false; data = JSONObject() }
             }
         }
+    }
+    LaunchedEffect(api) {
+        if (api.signedIn) perform({ api.data(initialServer) }, ::load)
     }
     val profile = data.optJSONObject("profile")?.optJSONObject("user") ?: JSONObject()
     val devices = data.optJSONArray("devices") ?: JSONArray()
