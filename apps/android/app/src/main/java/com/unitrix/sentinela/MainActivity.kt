@@ -40,6 +40,7 @@ private val Ink = Color(0xFF182A30)
 private val Muted = Color(0xFF68767A)
 
 class MainActivity : FragmentActivity() {
+    private val accountApi by lazy { AccountApi(this) }
     private lateinit var store: SecurityStore
     private lateinit var protector: ProtectionController
     private lateinit var location: LocationController
@@ -185,7 +186,7 @@ class MainActivity : FragmentActivity() {
             Scaffold(containerColor = Paper, topBar = { TopAppBar(title = { Text(if (tab == "Início") "SENTINELA" else tab, style = MaterialTheme.typography.titleMedium) }, navigationIcon = { if (tab != "Início") TextButton(onClick = { navigate("Início") }) { Text("Voltar") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Paper), actions = {
                 TextButton(onClick = { menuOpen = true }) { Text("Menu") }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    listOf("Conexão", "Localização", "Celular perdido", "Recuperação", "Histórico", "Permissões", "Ajuda").forEach { route -> DropdownMenuItem(text = { Text(route) }, onClick = { menuOpen = false; navigate(route) }) }
+                    listOf("Minha conta", "Conexão", "Localização", "Celular perdido", "Recuperação", "Histórico", "Permissões", "Ajuda").forEach { route -> DropdownMenuItem(text = { Text(route) }, onClick = { menuOpen = false; navigate(route) }) }
                 }
             }) }, bottomBar = {
                 NavigationBar(containerColor = Color.White) {
@@ -216,6 +217,7 @@ class MainActivity : FragmentActivity() {
                                 Text(store.syncStatus, style = MaterialTheme.typography.bodySmall, color = Muted)
                                 Text("Microfone: ${if (listening) "sessão ativa" else "inativo"} · Localização: ${if (location.permitted() && store.locationConsent) "autorizada" else "pendente"}", style = MaterialTheme.typography.bodySmall)
                                 Button(onClick = { navigate("Proteção") }, modifier = Modifier.fillMaxWidth()) { Text("Gerenciar proteção") }
+                                OutlinedButton(onClick = { navigate("Minha conta") }, modifier = Modifier.fillMaxWidth()) { Text("Minha conta") }
                                 OutlinedButton(onClick = { navigate("Permissões") }, modifier = Modifier.fillMaxWidth()) { Text("Revisar permissões") }
                             }
                             Section("Acesso rápido") {
@@ -230,9 +232,9 @@ class MainActivity : FragmentActivity() {
                             }
                         }
                         "Mais" -> Section("Todas as áreas") {
-                            listOf("Conexão", "Localização", "Celular perdido", "Recuperação", "Histórico", "Permissões", "Ajuda").forEach { route -> OutlinedButton(onClick = { navigate(route) }, modifier = Modifier.fillMaxWidth()) { Text(route) } }
-                            Text("Contatos, dispositivos da conta, notificações, assinatura e perfil estão no painel autenticado. A demonstração contém todos os módulos offline.", style = MaterialTheme.typography.bodySmall, color = Muted)
-                            OutlinedButton(onClick = { navigate("Conexão") }, modifier = Modifier.fillMaxWidth()) { Text("Abrir minha conta no painel") }
+                            listOf("Minha conta", "Conexão", "Localização", "Celular perdido", "Recuperação", "Histórico", "Permissões", "Ajuda").forEach { route -> OutlinedButton(onClick = { navigate(route) }, modifier = Modifier.fillMaxWidth()) { Text(route) } }
+                            Text("Minha conta oferece login nativo, perfil, contatos, dispositivos, notificações e plano. A demonstração permanece offline.", style = MaterialTheme.typography.bodySmall, color = Muted)
+                            OutlinedButton(onClick = { navigate("Minha conta") }, modifier = Modifier.fillMaxWidth()) { Text("Entrar na minha conta") }
                         }
                         "Localização" -> {
                             Section("Localização autorizada") {
@@ -323,6 +325,7 @@ class MainActivity : FragmentActivity() {
                                 Text("Power 3× e Power + Volume não são interceptados por aplicativos comuns de forma confiável. Use o botão do app ou a ação Bloquear agora da notificação autorizada. O SOS nativo permanece intacto.", style = MaterialTheme.typography.bodySmall, color = Muted)
                             }
                         }
+                        "Minha conta" -> AccountPortal(accountApi, store.server, openProtection = { navigate("Proteção") })
                         "Conexão" -> {
                             Section("Conectar este dispositivo") {
                                 Text(if (store.token.isBlank()) "Não cadastrado no servidor." else "Cadastrado · ${store.deviceId.take(16)}…", style = MaterialTheme.typography.bodySmall, color = Green)
